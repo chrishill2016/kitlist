@@ -1,0 +1,302 @@
+@page "/kit/{Id}"
+@inject KitRepository Repository
+@inject AuthService Auth
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>@(_item?.Name ?? "Kit") · Club Kit</PageTitle>
+
+@if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+
+@if (_item is null)
+{
+    @if (_error is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+    <p><a href="kit">← Back to kit</a></p>
+}
+else
+{
+    <p class="crumbs"><a href="kit">← Kit</a></p>
+    <div class="page-header">
+        <div>
+            <h1>@_item.Name</h1>
+            <p class="muted">@_item.Category.Display() @(string.IsNullOrWhiteSpace(_item.Make) ? "" : $"· {_item.Make} {_item.Model}")</p>
+        </div>
+        @if (Auth.CanEdit)
+        {
+            <div class="actions">
+                <a class="btn" href="kit/@Id/edit">Edit</a>
+                <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+            </div>
+        }
+    </div>
+
+    <section class="card">
+        <dl class="details">
+            <div><dt>Condition</dt><dd><ConditionBadge Condition="_item.Condition" /></dd></div>
+            <div><dt>Service status</dt><dd><StatusBadge Status="ServiceRules.GetStatus(_item, _today)" /></dd></div>
+            <div><dt>Serial number</dt><dd>@Or(_item.SerialNumber)</dd></div>
+            <div><dt>Size</dt><dd>@Or(_item.Size)</dd></div>
+            <div><dt>Location</dt><dd>@Or(_item.Location)</dd></div>
+            <div><dt>Purchased</dt><dd>@_item.PurchaseDate.Display()</dd></div>
+            <div><dt>Purchase cost</dt><dd>@(_item.PurchaseCost?.ToString("N2") ?? "—")</dd></div>
+        </dl>
+        @if (!string.IsNullOrWhiteSpace(_item.Notes))
+        {
+            <p class="notes">@_item.Notes</p>
+        }
+        @if (_item.UpdatedAt is { } updated)
+        {
+            <p class="muted small">Last updated @updated.ToLocalTime().ToString("d MMM yyyy HH:mm")@(_item.UpdatedBy is null ? "" : $" by {_item.UpdatedBy}")</p>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Servicing</h2>
+        @if (_item.Schedules.Count == 0)
+        {
+            <p class="muted">No service schedule. @(Auth.CanEdit ? "Edit the item to add one." : "")</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead><tr><th>Service / test</th><th>Every</th><th>Last done</th><th>Next due</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var schedule in _item.Schedules)
+                    {
+                        <tr>
+                            <td>@schedule.Type</td>
+                            <td>@Interval(schedule.IntervalMonths)</td>
+                            <td>@schedule.LastDone.Display()</td>
+                            <td>@schedule.NextDue().Display()</td>
+                            <td><StatusBadge Status="ServiceRules.GetStatus(schedule, _today)" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @if (Auth.CanEdit)
+        {
+            @if (_record is null)
+            {
+                <button class="btn btn-primary" @onclick="StartRecord">Record a service</button>
+            }
+            else
+            {
+                <EditForm Model="_record" OnValidSubmit="SaveRecordAsync" class="form record-form">
+                    <h3>Record a service</h3>
+                    <div class="grid">
+                        <label class="field">
+                            <span>Date</span>
+                            <InputDate class="input" @bind-Value="_record.Date" />
+                        </label>
+                        <label class="field">
+                            <span>Service / test</span>
+                            <InputText class="input" @bind-Value="_record.Type" list="service-types" />
+                            <datalist id="service-types">
+                                @foreach (var schedule in _item.Schedules)
+                                {
+                                    <option value="@schedule.Type"></option>
+                                }
+                            </datalist>
+                        </label>
+                        <label class="field">
+                            <span>Done by</span>
+                            <InputText class="input" @bind-Value="_record.DoneBy" placeholder="e.g. dive shop or technician" />
+                        </label>
+                    </div>
+                    <label class="field">
+                        <span>Notes</span>
+                        <InputTextArea class="input" rows="2" @bind-Value="_record.Notes" />
+                    </label>
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_record.Type))">Save record</button>
+                        <button type="button" class="btn btn-ghost" @onclick="() => _record = null">Cancel</button>
+                    </div>
+                </EditForm>
+            }
+        }
+
+        <h3>History</h3>
+        @if (_item.ServiceLog.Count == 0)
+        {
+            <p class="muted">No services recorded yet.</p>
+        }
+        else
+        {
+            <ul class="history">
+                @foreach (var record in _item.ServiceLog)
+                {
+                    <li>
+                        <div>
+                            <strong>@record.Date.Display()</strong> · @record.Type
+                            @if (!string.IsNullOrWhiteSpace(record.DoneBy)) { <span class="muted"> by @record.DoneBy</span> }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(record.Notes)) { <div class="small">@record.Notes</div> }
+                        @if (Auth.CanEdit)
+                        {
+                            <button class="btn btn-ghost btn-small" @onclick="() => DeleteRecordAsync(record)">Remove</button>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Photos</h2>
+        @if (_photos is null)
+        {
+            <p class="muted">Loading photos…</p>
+        }
+        else
+        {
+            @if (_photos.Count == 0)
+            {
+                <p class="muted">No photos yet.</p>
+            }
+            <div class="photos">
+                @foreach (var photo in _photos)
+                {
+                    <figure>
+                        <a href="@photo.DataUrl" target="_blank" rel="noopener"><img src="@photo.DataUrl" alt="Photo of @_item.Name" loading="lazy" /></a>
+                        @if (Auth.CanEdit)
+                        {
+                            <button class="btn btn-ghost btn-small" @onclick="() => DeletePhotoAsync(photo)">Remove</button>
+                        }
+                    </figure>
+                }
+            </div>
+            @if (Auth.CanEdit)
+            {
+                <label class="btn btn-small file-button">
+                    @(_busy ? "Uploading…" : "Add photo")
+                    <input type="file" accept="image/*" @ref="_fileInput" @onchange="AddPhotoAsync" disabled="@_busy" />
+                </label>
+            }
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private KitItem? _item;
+    private List<KitPhoto>? _photos;
+    private ServiceRecord? _record;
+    private ElementReference _fileInput;
+    private string? _error;
+    private bool _busy;
+    private readonly DateOnly _today = ServiceRules.Today();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _item = await Repository.GetItemAsync(Id);
+            if (_item is null)
+            {
+                _error = "That item doesn't exist. It may have been deleted.";
+                return;
+            }
+            _photos = await Repository.GetPhotosAsync(Id);
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load the item: {ex.Message}";
+        }
+    }
+
+    private void StartRecord() => _record = new ServiceRecord
+    {
+        Date = _today,
+        Type = _item!.Schedules.FirstOrDefault()?.Type ?? "Service",
+    };
+
+    private async Task SaveRecordAsync()
+    {
+        await RunAsync(async () =>
+        {
+            _record!.RecordedBy = Auth.User?.Email;
+            ServiceRules.ApplyServiceRecord(_item!, _record);
+            await Repository.SaveItemAsync(_item!, Auth.User?.Email);
+            _record = null;
+        });
+    }
+
+    private async Task DeleteRecordAsync(ServiceRecord record)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Remove the {record.Type} record from {record.Date.Display()}? The schedule's \"last done\" date won't change."))
+            return;
+        await RunAsync(async () =>
+        {
+            _item!.ServiceLog.Remove(record);
+            await Repository.SaveItemAsync(_item, Auth.User?.Email);
+        });
+    }
+
+    private async Task AddPhotoAsync()
+    {
+        await RunAsync(async () =>
+        {
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/photos.js");
+            var dataUrl = await module.InvokeAsync<string?>("readResizedImage", _fileInput, 1024, 0.75);
+            if (dataUrl is null)
+                return;
+            var photo = new KitPhoto { DataUrl = dataUrl, AddedAt = DateTimeOffset.UtcNow, AddedBy = Auth.User?.Email };
+            await Repository.AddPhotoAsync(Id, photo);
+            _photos!.Add(photo);
+        });
+    }
+
+    private async Task DeletePhotoAsync(KitPhoto photo)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Remove this photo?"))
+            return;
+        await RunAsync(async () =>
+        {
+            await Repository.DeletePhotoAsync(Id, photo.Id);
+            _photos!.Remove(photo);
+        });
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete {_item!.Name}, its service history and photos? This can't be undone."))
+            return;
+        await RunAsync(async () =>
+        {
+            await Repository.DeleteItemAsync(Id);
+            Navigation.NavigateTo("kit");
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (JSException ex)
+        {
+            _error = $"That didn't work: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Or(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    private static string Interval(int months) =>
+        months % 12 == 0 ? (months == 12 ? "year" : $"{months / 12} years") : $"{months} months";
+}

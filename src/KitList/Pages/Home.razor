@@ -1,0 +1,109 @@
+@page "/"
+@inject KitRepository Repository
+
+<PageTitle>Dashboard · Club Kit</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+else if (_items is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <div class="stats">
+        @foreach (var category in Enum.GetValues<KitCategory>())
+        {
+            <a class="stat" href="kit?category=@category">
+                <span class="stat-value">@_items.Count(i => i.Category == category)</span>
+                <span class="stat-label">@category.Display()</span>
+            </a>
+        }
+    </div>
+
+    <section class="card">
+        <h2>Service due</h2>
+        @if (_due.Count == 0)
+        {
+            <p class="muted">Nothing is overdue or due in the next @ServiceRules.DueSoonDays days.</p>
+        }
+        else
+        {
+            <ul class="rows">
+                @foreach (var (item, schedule, status) in _due)
+                {
+                    <li>
+                        <a href="kit/@item.Id">
+                            <span class="row-main">
+                                <strong>@item.Name</strong>
+                                <span class="muted">@schedule.Type · @(schedule.LastDone is null ? "never recorded" : $"due {schedule.NextDue().Display()}")</span>
+                            </span>
+                            <StatusBadge Status="status" />
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Needs attention</h2>
+        @if (_damaged.Count == 0)
+        {
+            <p class="muted">No kit is marked as needing repair or out of service.</p>
+        }
+        else
+        {
+            <ul class="rows">
+                @foreach (var item in _damaged)
+                {
+                    <li>
+                        <a href="kit/@item.Id">
+                            <span class="row-main">
+                                <strong>@item.Name</strong>
+                                <span class="muted">@item.Category.Display()@(item.Location is null ? "" : $" · {item.Location}")</span>
+                            </span>
+                            <ConditionBadge Condition="item.Condition" />
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+}
+
+@code {
+    private List<KitItem>? _items;
+    private List<(KitItem Item, ServiceSchedule Schedule, DueStatus Status)> _due = [];
+    private List<KitItem> _damaged = [];
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _items = await Repository.GetItemsAsync();
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load kit: {ex.Message}";
+            return;
+        }
+
+        var today = ServiceRules.Today();
+        _due = _items
+            .Where(i => i.Condition != KitCondition.OutOfService)
+            .SelectMany(i => i.Schedules.Select(s => (Item: i, Schedule: s, Status: ServiceRules.GetStatus(s, today))))
+            .Where(x => x.Status is DueStatus.Overdue or DueStatus.DueSoon or DueStatus.NoRecord)
+            .OrderByDescending(x => x.Status)
+            .ThenBy(x => x.Schedule.NextDue())
+            .ToList();
+        _damaged = _items
+            .Where(i => i.Condition is KitCondition.NeedsRepair or KitCondition.OutOfService)
+            .ToList();
+    }
+}

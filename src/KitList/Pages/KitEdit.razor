@@ -1,0 +1,188 @@
+@page "/kit/new"
+@page "/kit/{Id}/edit"
+@inject KitRepository Repository
+@inject AuthService Auth
+@inject NavigationManager Navigation
+
+<PageTitle>@(IsNew ? "Add kit" : "Edit kit") · Club Kit</PageTitle>
+
+<h1>@(IsNew ? "Add kit" : $"Edit {_item?.Name}")</h1>
+
+@if (!Auth.CanEdit)
+{
+    <p class="alert">You need editor access to change kit.</p>
+}
+else if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+else if (_item is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <EditForm Model="_item" OnValidSubmit="SaveAsync" class="card form">
+        <DataAnnotationsValidator />
+
+        <div class="grid">
+            <label class="field">
+                <span>Category</span>
+                <InputSelect class="input" @bind-Value="_item.Category" @bind-Value:after="OnCategoryChanged">
+                    @foreach (var category in Enum.GetValues<KitCategory>())
+                    {
+                        <option value="@category">@category.Display()</option>
+                    }
+                </InputSelect>
+            </label>
+            <label class="field">
+                <span>Name</span>
+                <InputText class="input" @bind-Value="_item.Name" placeholder="e.g. BCD 3" />
+                <ValidationMessage For="() => _item.Name" />
+            </label>
+            <label class="field">
+                <span>Make</span>
+                <InputText class="input" @bind-Value="_item.Make" />
+            </label>
+            <label class="field">
+                <span>Model</span>
+                <InputText class="input" @bind-Value="_item.Model" />
+            </label>
+            <label class="field">
+                <span>Serial number</span>
+                <InputText class="input" @bind-Value="_item.SerialNumber" />
+            </label>
+            <label class="field">
+                <span>Size</span>
+                <InputText class="input" @bind-Value="_item.Size" placeholder="e.g. M, L, 12L" />
+            </label>
+            <label class="field">
+                <span>Condition</span>
+                <InputSelect class="input" @bind-Value="_item.Condition">
+                    @foreach (var condition in Enum.GetValues<KitCondition>())
+                    {
+                        <option value="@condition">@condition.Display()</option>
+                    }
+                </InputSelect>
+            </label>
+            <label class="field">
+                <span>Location</span>
+                <InputText class="input" @bind-Value="_item.Location" placeholder="e.g. Club store, with Sam" />
+            </label>
+            <label class="field">
+                <span>Purchase date</span>
+                <InputDate class="input" @bind-Value="_item.PurchaseDate" />
+            </label>
+            <label class="field">
+                <span>Purchase cost</span>
+                <InputNumber class="input" @bind-Value="_item.PurchaseCost" step="0.01" min="0" />
+                <ValidationMessage For="() => _item.PurchaseCost" />
+            </label>
+        </div>
+
+        <label class="field">
+            <span>Notes</span>
+            <InputTextArea class="input" rows="3" @bind-Value="_item.Notes" />
+        </label>
+
+        <fieldset class="schedules">
+            <legend>Service schedule</legend>
+            <p class="muted small">How often each service or test is due. Set "last done" if you know it; later services are recorded on the item's page.</p>
+            @foreach (var schedule in _item.Schedules)
+            {
+                <div class="schedule-row">
+                    <label class="field">
+                        <span>Service / test</span>
+                        <InputText class="input" @bind-Value="schedule.Type" />
+                    </label>
+                    <label class="field field-narrow">
+                        <span>Every (months)</span>
+                        <InputNumber class="input" @bind-Value="schedule.IntervalMonths" min="1" max="240" />
+                    </label>
+                    <label class="field">
+                        <span>Last done</span>
+                        <InputDate class="input" @bind-Value="schedule.LastDone" />
+                    </label>
+                    <button type="button" class="btn btn-ghost btn-small" @onclick="() => _item.Schedules.Remove(schedule)" aria-label="Remove @schedule.Type">Remove</button>
+                </div>
+            }
+            <button type="button" class="btn btn-small" @onclick="AddSchedule">Add schedule</button>
+        </fieldset>
+
+        <ValidationSummary />
+
+        <div class="actions">
+            <button type="submit" class="btn btn-primary" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+            <a class="btn btn-ghost" href="@(IsNew ? "kit" : $"kit/{Id}")">Cancel</a>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private bool IsNew => string.IsNullOrEmpty(Id);
+    private KitItem? _item;
+    private string? _error;
+    private bool _saving;
+    private KitCategory _defaultsFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsNew)
+        {
+            _item = new KitItem { Category = KitCategory.Bcd, Location = "Club store" };
+            _defaultsFor = _item.Category;
+            _item.Schedules = ServiceRules.DefaultSchedules(_item.Category);
+            return;
+        }
+
+        try
+        {
+            _item = await Repository.GetItemAsync(Id!);
+            if (_item is null)
+                _error = "That item doesn't exist. It may have been deleted.";
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load the item: {ex.Message}";
+        }
+    }
+
+    // While adding kit, swap in the new category's default schedules unless they've been edited.
+    private void OnCategoryChanged()
+    {
+        if (!IsNew || !MatchesDefaults(_item!.Schedules, _defaultsFor))
+            return;
+        _defaultsFor = _item.Category;
+        _item.Schedules = ServiceRules.DefaultSchedules(_item.Category);
+    }
+
+    private static bool MatchesDefaults(List<ServiceSchedule> schedules, KitCategory category)
+    {
+        var defaults = ServiceRules.DefaultSchedules(category);
+        return schedules.Count == defaults.Count && schedules.Zip(defaults).All(p =>
+            p.First.Type == p.Second.Type && p.First.IntervalMonths == p.Second.IntervalMonths && p.First.LastDone is null);
+    }
+
+    private void AddSchedule() => _item!.Schedules.Add(new ServiceSchedule { Type = "Service", IntervalMonths = 12 });
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            _item!.Schedules.RemoveAll(s => string.IsNullOrWhiteSpace(s.Type));
+            await Repository.SaveItemAsync(_item, Auth.User?.Email);
+            Navigation.NavigateTo($"kit/{_item.Id}");
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't save: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

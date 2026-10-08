@@ -1,0 +1,5 @@
+<span class="badge badge-@Status.ToString().ToLowerInvariant()">@Status.Display()</span>
+
+@code {
+    [Parameter, EditorRequired] public DueStatus Status { get; set; }
+}

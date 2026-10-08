@@ -1,0 +1,83 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthService Auth
+
+<header class="topbar">
+    <a class="brand" href="">
+        <img src="icon-192.png" alt="" width="28" height="28" />
+        <span>Club Kit</span>
+    </a>
+    @if (Auth.Member is not null)
+    {
+        <nav class="nav">
+            <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="kit">Kit</NavLink>
+            @if (Auth.IsAdmin)
+            {
+                <NavLink href="members">Members</NavLink>
+            }
+        </nav>
+    }
+    @if (Auth.User is not null)
+    {
+        <div class="user">
+            <span class="user-name" title="@Auth.User.Email">@(Auth.User.Name ?? Auth.User.Email)</span>
+            <button class="btn btn-ghost btn-small" @onclick="Auth.SignOutAsync">Sign out</button>
+        </div>
+    }
+</header>
+
+@if (Auth.IsDemo)
+{
+    <div class="demo-banner">
+        Demo mode: Firebase isn't configured, so data is only saved in this browser. See the README to connect a database.
+    </div>
+}
+
+<main class="page">
+    @if (Auth.Error is not null)
+    {
+        <p class="alert alert-error">@Auth.Error</p>
+    }
+
+    @if (!Auth.IsReady)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else if (Auth.User is null)
+    {
+        <section class="card sign-in">
+            <h1>Club Kit</h1>
+            <p>Track the diving club's BCDs, regulators, cylinders and fins, and see what's due for service.</p>
+            <button class="btn btn-primary" @onclick="Auth.SignInAsync">
+                @(Auth.IsDemo ? "Try the demo" : "Sign in with Google")
+            </button>
+        </section>
+    }
+    else if (Auth.Member is null)
+    {
+        <section class="card sign-in">
+            <h1>Not on the list yet</h1>
+            <p>You're signed in as <strong>@Auth.User.Email</strong>, but that address hasn't been added as a club member.</p>
+            <p>Ask a club admin to add you on the Members page, then try again.</p>
+            <button class="btn" @onclick="Auth.RefreshMemberAsync">Try again</button>
+        </section>
+    }
+    else
+    {
+        @Body
+    }
+</main>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.Changed += OnAuthChanged;
+        if (!Auth.IsReady)
+            await Auth.InitializeAsync();
+    }
+
+    private void OnAuthChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Auth.Changed -= OnAuthChanged;
+}

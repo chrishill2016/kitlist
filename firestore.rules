@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// Paste these into Firebase console → Firestore Database → Rules.
+// Only people listed in the members collection can see anything;
+// editors and admins can change kit, and only admins can manage members.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function memberDoc() {
+      return /databases/$(database)/documents/members/$(myEmail());
+    }
+
+    function isMember() {
+      return signedIn() && exists(memberDoc());
+    }
+
+    function hasRole(roles) {
+      return isMember() && get(memberDoc()).data.role in roles;
+    }
+
+    match /items/{itemId} {
+      allow read: if isMember();
+      allow write: if hasRole(['Editor', 'Admin']);
+
+      match /photos/{photoId} {
+        allow read: if isMember();
+        allow write: if hasRole(['Editor', 'Admin']);
+      }
+    }
+
+    match /members/{email} {
+      // Everyone can check their own entry; members can see the list.
+      allow read: if signedIn() && (email == myEmail() || isMember());
+      allow write: if hasRole(['Admin'])
+        && (request.resource == null || request.resource.data.role in ['Viewer', 'Editor', 'Admin']);
+    }
+  }
+}

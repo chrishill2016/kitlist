@@ -1,0 +1,149 @@
+@page "/members"
+@inject KitRepository Repository
+@inject AuthService Auth
+@inject IJSRuntime JS
+
+<PageTitle>Members · Club Kit</PageTitle>
+
+<h1>Members</h1>
+
+@if (!Auth.IsAdmin)
+{
+    <p class="alert">Only admins can manage members.</p>
+}
+else
+{
+    <p class="muted">Anyone listed here can sign in with that Google account. Viewers can see kit, editors can change it, and admins can also manage this list.</p>
+
+    @if (_error is not null)
+    {
+        <p class="alert alert-error">@_error</p>
+    }
+
+    <EditForm Model="_new" OnValidSubmit="AddAsync" class="card form member-form">
+        <h2>Add a member</h2>
+        <div class="grid">
+            <label class="field">
+                <span>Google email</span>
+                <InputText class="input" type="email" @bind-Value="_new.Email" placeholder="name@gmail.com" />
+            </label>
+            <label class="field">
+                <span>Name</span>
+                <InputText class="input" @bind-Value="_new.Name" />
+            </label>
+            <label class="field">
+                <span>Role</span>
+                <InputSelect class="input" @bind-Value="_new.Role">
+                    @foreach (var role in Enum.GetValues<MemberRole>())
+                    {
+                        <option value="@role">@role</option>
+                    }
+                </InputSelect>
+            </label>
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary" disabled="@(_busy || !_new.Email.Contains('@'))">Add</button>
+        </div>
+    </EditForm>
+
+    @if (_members is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else
+    {
+        <ul class="rows card">
+            @foreach (var member in _members)
+            {
+                var isMe = member.Email == RepositoryKey(Auth.User!.Email);
+                <li>
+                    <div class="row-static">
+                        <span class="row-main">
+                            <strong>@(member.Name ?? member.Email)@(isMe ? " (you)" : "")</strong>
+                            <span class="muted">@member.Email</span>
+                        </span>
+                        <span class="row-badges">
+                            <select class="input input-small" value="@member.Role" disabled="@(isMe || _busy)"
+                                    @onchange="e => ChangeRoleAsync(member, e.Value?.ToString())" aria-label="Role for @member.Email">
+                                @foreach (var role in Enum.GetValues<MemberRole>())
+                                {
+                                    <option value="@role">@role</option>
+                                }
+                            </select>
+                            @if (!isMe)
+                            {
+                                <button class="btn btn-ghost btn-small" disabled="@_busy" @onclick="() => RemoveAsync(member)">Remove</button>
+                            }
+                        </span>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    private List<Member>? _members;
+    private Member _new = new();
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Auth.IsAdmin)
+            await RunAsync(LoadAsync);
+    }
+
+    private async Task LoadAsync() => _members = await Repository.GetMembersAsync();
+
+    private static string RepositoryKey(string email) => KitRepository.MemberKey(email);
+
+    private Task AddAsync() => RunAsync(async () =>
+    {
+        if (_members!.Any(m => m.Email == RepositoryKey(_new.Email)))
+        {
+            _error = $"{_new.Email} is already a member.";
+            return;
+        }
+        await Repository.SaveMemberAsync(_new);
+        _new = new();
+        await LoadAsync();
+    });
+
+    private Task ChangeRoleAsync(Member member, string? value) => RunAsync(async () =>
+    {
+        if (!Enum.TryParse<MemberRole>(value, out var role))
+            return;
+        member.Role = role;
+        await Repository.SaveMemberAsync(member);
+    });
+
+    private async Task RemoveAsync(Member member)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Remove {member.Email}? They won't be able to sign in any more."))
+            return;
+        await RunAsync(async () =>
+        {
+            await Repository.DeleteMemberAsync(member.Email);
+            _members!.Remove(member);
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+        }
+        catch (JSException ex)
+        {
+            _error = $"That didn't work: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

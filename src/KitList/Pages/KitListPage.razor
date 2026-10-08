@@ -1,0 +1,105 @@
+@page "/kit"
+@inject KitRepository Repository
+@inject AuthService Auth
+
+<PageTitle>Kit · Club Kit</PageTitle>
+
+<div class="page-header">
+    <h1>Kit</h1>
+    @if (Auth.CanEdit)
+    {
+        <a class="btn btn-primary" href="kit/new">Add kit</a>
+    }
+</div>
+
+<div class="filters">
+    <input class="input" type="search" placeholder="Search name, make, serial, location…"
+           @bind="_search" @bind:event="oninput" aria-label="Search kit" />
+    <div class="chips" role="group" aria-label="Category">
+        <a class="chip @(Category is null ? "active" : "")" href="kit">All</a>
+        @foreach (var category in Enum.GetValues<KitCategory>())
+        {
+            <a class="chip @(Category == category ? "active" : "")" href="kit?category=@category">@category.Display()</a>
+        }
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+else if (_items is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    var visible = Filtered().ToList();
+    if (visible.Count == 0)
+    {
+        <p class="muted">@(_items.Count == 0 ? "No kit has been added yet." : "No kit matches.")</p>
+    }
+    else
+    {
+        <ul class="rows card">
+            @foreach (var item in visible)
+            {
+                <li>
+                    <a href="kit/@item.Id">
+                        <span class="row-main">
+                            <strong>@item.Name</strong>
+                            <span class="muted">
+                                @item.Category.Display()
+                                @if (!string.IsNullOrWhiteSpace(item.Size)) { <text> · Size @item.Size</text> }
+                                @if (!string.IsNullOrWhiteSpace(item.SerialNumber)) { <text> · S/N @item.SerialNumber</text> }
+                            </span>
+                        </span>
+                        <span class="row-badges">
+                            @if (item.Condition != KitCondition.Good)
+                            {
+                                <ConditionBadge Condition="item.Condition" />
+                            }
+                            <StatusBadge Status="ServiceRules.GetStatus(item, _today)" />
+                        </span>
+                    </a>
+                </li>
+            }
+        </ul>
+        <p class="muted small">@visible.Count of @_items.Count items</p>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "category")]
+    public string? CategoryText { get; set; }
+
+    private KitCategory? Category => Enum.TryParse<KitCategory>(CategoryText, true, out var c) ? c : null;
+
+    private List<KitItem>? _items;
+    private string _search = "";
+    private string? _error;
+    private readonly DateOnly _today = ServiceRules.Today();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _items = await Repository.GetItemsAsync();
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load kit: {ex.Message}";
+        }
+    }
+
+    private IEnumerable<KitItem> Filtered()
+    {
+        var terms = _search.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return _items!
+            .Where(i => Category is null || i.Category == Category)
+            .Where(i => terms.All(t => SearchText(i).Contains(t, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string SearchText(KitItem i) =>
+        string.Join(' ', i.Name, i.Make, i.Model, i.SerialNumber, i.Size, i.Location, i.Notes, i.Category.Display());
+}

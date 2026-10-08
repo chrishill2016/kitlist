@@ -1,0 +1,59 @@
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test tests/KitList.Tests
+
+      - name: Publish
+        run: dotnet publish src/KitList -c Release -o publish
+
+      - name: Prepare for GitHub Pages
+        run: |
+          # Project sites are served from /<repo-name>/, not the domain root.
+          base="/${{ github.event.repository.name }}/"
+          sed -i "s|<base href=\"/\" />|<base href=\"$base\" />|" publish/wwwroot/index.html
+          # GitHub Pages has no SPA routing; serve the app for unknown paths so deep links work.
+          cp publish/wwwroot/index.html publish/wwwroot/404.html
+          # Let files and folders starting with "_" (e.g. _framework) through.
+          touch publish/wwwroot/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

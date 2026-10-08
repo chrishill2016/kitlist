@@ -1,0 +1,5 @@
+<span class="badge badge-condition-@Condition.ToString().ToLowerInvariant()">@Condition.Display()</span>
+
+@code {
+    [Parameter, EditorRequired] public KitCondition Condition { get; set; }
+}
