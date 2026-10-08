@@ -6,7 +6,7 @@ namespace KitList.Services;
 /// <summary>Demo-mode store that keeps every document in one localStorage entry, keyed by path.</summary>
 public sealed class LocalDocumentStore(IJSRuntime js) : IDocumentStore
 {
-    private const string StorageKey = "kitlist-demo";
+    public const string StorageKey = "kitlist-demo";
     private Dictionary<string, string>? _docs;
 
     public async Task<IReadOnlyList<StoredDocument>> ListAsync(string collectionPath)

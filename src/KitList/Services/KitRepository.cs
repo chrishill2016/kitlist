@@ -9,6 +9,7 @@ namespace KitList.Services;
 ///   items/{itemId}                  KitItem (schedules and service log embedded)
 ///   items/{itemId}/photos/{photoId} KitPhoto (kept separate so lists stay small)
 ///   members/{lower-case email}      Member
+///   sessions/{yyyy-MM-dd}           DiveSession (the weekly kit sheet)
 /// </summary>
 public sealed class KitRepository(IDocumentStore store)
 {
@@ -20,7 +21,10 @@ public sealed class KitRepository(IDocumentStore store)
     public async Task<List<KitItem>> GetItemsAsync()
     {
         var docs = await store.ListAsync("items");
-        return docs.Select(d => Read<KitItem>(d.Json, d.Id)).OrderBy(i => i.Category).ThenBy(i => i.Name).ToList();
+        return docs.Select(d => Read<KitItem>(d.Json, d.Id))
+            .OrderBy(i => i.Category)
+            .ThenBy(i => i.Name, NaturalComparer.Instance)
+            .ToList();
     }
 
     public async Task<KitItem?> GetItemAsync(string id)
@@ -78,6 +82,28 @@ public sealed class KitRepository(IDocumentStore store)
 
     public Task DeleteMemberAsync(string email) => store.DeleteAsync($"members/{MemberKey(email)}");
 
+    public async Task<List<DiveSession>> GetSessionsAsync()
+    {
+        var docs = await store.ListAsync("sessions");
+        return docs.Select(d => Read<DiveSession>(d.Json, d.Id)).OrderByDescending(s => s.Date).ToList();
+    }
+
+    public async Task<DiveSession?> GetSessionAsync(string id)
+    {
+        var json = await store.GetAsync($"sessions/{id}");
+        return json is null ? null : Read<DiveSession>(json, id);
+    }
+
+    public Task SaveSessionAsync(DiveSession session, string? updatedBy)
+    {
+        session.Id = SessionRules.IdFor(session.Date);
+        session.UpdatedAt = DateTimeOffset.UtcNow;
+        session.UpdatedBy = updatedBy;
+        return store.SetAsync($"sessions/{session.Id}", JsonSerializer.Serialize(session, Json));
+    }
+
+    public Task DeleteSessionAsync(string id) => store.DeleteAsync($"sessions/{id}");
+
     public static string MemberKey(string email) => email.Trim().ToLowerInvariant();
 
     private static T Read<T>(string json, string id)
@@ -88,6 +114,7 @@ public sealed class KitRepository(IDocumentStore store)
             case KitItem item: item.Id = id; break;
             case KitPhoto photo: photo.Id = id; break;
             case Member member: member.Email = id; break;
+            case DiveSession session: session.Id = id; break;
         }
         return value;
     }

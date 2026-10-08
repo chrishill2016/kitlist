@@ -9,7 +9,7 @@ namespace KitList.Services;
 /// </summary>
 public sealed class AuthService(FirebaseOptions options, FirebaseJs firebase, KitRepository repository, IJSRuntime js) : IDisposable
 {
-    private const string DemoSignedInKey = "kitlist-demo-signed-in";
+    public const string DemoSignedInKey = "kitlist-demo-signed-in";
 
     private DotNetObjectReference<AuthService>? _selfRef;
 

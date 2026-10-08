@@ -1,0 +1,329 @@
+@page "/sessions/{Id}"
+@using Microsoft.AspNetCore.Components.Routing
+@inject KitRepository Repository
+@inject AuthService Auth
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>@(_session is null ? "Session" : _session.Date.ToString("d MMM yyyy")) · Club Kit</PageTitle>
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" ConfirmExternalNavigation="_dirty" />
+
+<p class="crumbs no-print"><a href="sessions">← Sessions</a></p>
+
+@if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+
+@if (_session is null)
+{
+    @if (_error is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+}
+else
+{
+    var doubleBooked = SessionRules.DoubleBooked(_session);
+
+    <div class="page-header">
+        <div>
+            <h1>@_session.Date.ToString("dddd d MMMM yyyy")</h1>
+            @if (_editing)
+            {
+                <input class="input session-notes" placeholder="Notes, e.g. pool session, Stoney Cove" @bind="_session.Notes" @bind:after="MarkDirty" />
+            }
+            else if (_session.Notes is not null)
+            {
+                <p class="muted">@_session.Notes</p>
+            }
+        </div>
+        <div class="actions no-print">
+            @if (_editing)
+            {
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_busy ? "Saving…" : _dirty ? "Save" : "Done")</button>
+                <button class="btn btn-ghost" @onclick="CancelAsync" disabled="@_busy">Cancel</button>
+            }
+            else
+            {
+                <button class="btn" @onclick="ShareAsync">Share</button>
+                <button class="btn" @onclick="PrintAsync">Print</button>
+                @if (Auth.CanEdit)
+                {
+                    <button class="btn btn-primary" @onclick="StartEditing">Edit</button>
+                    <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+                }
+            }
+        </div>
+    </div>
+
+    @if (_status is not null)
+    {
+        <p class="alert no-print">@_status</p>
+    }
+
+    <p class="sheet-note">Start pressures are carried over from each cylinder's last end pressure. <strong>Note your end pressures please!</strong></p>
+
+    @if (doubleBooked.Count > 0)
+    {
+        <p class="alert alert-error">
+            Given to more than one person: @string.Join(", ", doubleBooked.Select(id => _items.TryGetValue(id, out var i) ? i.PrefixedLabel(i.Category.Display()) : "unknown kit"))
+        </p>
+    }
+
+    <div class="sheet-wrap">
+        <table class="sheet @(_editing ? "editing" : "")">
+            <thead>
+                <tr>
+                    <th>Cylinder</th>
+                    <th>Start<br /><span class="unit">bar</span></th>
+                    <th>End<br /><span class="unit">bar</span></th>
+                    <th>BCD</th>
+                    <th>Fins</th>
+                    <th>Reg</th>
+                    <th>Name</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in OrderedRows())
+                {
+                    <tr class="@(row.IsAssigned ? "" : "unassigned")">
+                        <th scope="row">@Label(row.CylinderId, "deleted cylinder")@Warn(row.CylinderId, doubleBooked)</th>
+                        @if (_editing)
+                        {
+                            <td><input class="input cell-pressure" list="pressures" @bind="row.StartPressure" @bind:after="MarkDirty" aria-label="Start pressure" /></td>
+                            <td><input class="input cell-pressure" list="pressures" @bind="row.EndPressure" @bind:after="MarkDirty" aria-label="End pressure" /></td>
+                            <td>@KitSelect(row.BcdId, v => row.BcdId = v, _bcds, "BCD")</td>
+                            <td>@KitSelect(row.FinsId, v => row.FinsId = v, _fins, "Fins")</td>
+                            <td>@KitSelect(row.RegId, v => row.RegId = v, _regs, "Reg")</td>
+                            <td><input class="input cell-name" list="divers" @bind="row.Diver" @bind:after="MarkDirty" aria-label="Diver" /></td>
+                        }
+                        else
+                        {
+                            <td>@row.StartPressure</td>
+                            <td>@row.EndPressure</td>
+                            <td>@Label(row.BcdId)@Warn(row.BcdId, doubleBooked)</td>
+                            <td>@Label(row.FinsId)@Warn(row.FinsId, doubleBooked)</td>
+                            <td>@Label(row.RegId)@Warn(row.RegId, doubleBooked)</td>
+                            <td>@row.Diver</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <datalist id="pressures"><option value="full"></option></datalist>
+    <datalist id="divers">
+        @foreach (var name in _diverNames)
+        {
+            <option value="@name"></option>
+        }
+    </datalist>
+
+    @if (_session.UpdatedAt is { } updated)
+    {
+        <p class="muted small no-print">Last updated @updated.ToLocalTime().ToString("d MMM yyyy HH:mm")@(_session.UpdatedBy is null ? "" : $" by {_session.UpdatedBy}")</p>
+    }
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    [SupplyParameterFromQuery(Name = "edit")] public bool EditRequested { get; set; }
+
+    private DiveSession? _session;
+    private List<DiveSession> _allSessions = [];
+    private Dictionary<string, KitItem> _items = [];
+    private List<KitItem> _bcds = [], _fins = [], _regs = [];
+    private List<string> _diverNames = [];
+    private bool _editing, _dirty, _busy;
+    private string? _error, _status;
+    private readonly DateOnly _today = ServiceRules.Today();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var items = await Repository.GetItemsAsync();
+            _items = items.ToDictionary(i => i.Id);
+            _bcds = items.Where(i => i.Category == KitCategory.Bcd).ToList();
+            _fins = items.Where(i => i.Category == KitCategory.Fins).ToList();
+            _regs = items.Where(i => i.Category == KitCategory.Regulator).ToList();
+
+            _allSessions = await Repository.GetSessionsAsync();
+            _diverNames = _allSessions.SelectMany(s => s.Rows).Select(r => r.Diver)
+                .Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+
+            _session = await Repository.GetSessionAsync(Id);
+            if (_session is null)
+            {
+                _error = "There's no sheet for that date.";
+                return;
+            }
+            if (EditRequested && Auth.CanEdit)
+                StartEditing();
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load the session: {ex.Message}";
+        }
+    }
+
+    private IEnumerable<SessionRow> OrderedRows() =>
+        _session!.Rows.OrderBy(r => _items.TryGetValue(r.CylinderId, out var c) ? c.Name : "~", NaturalComparer.Instance);
+
+    private string Label(string? id, string missing = "?") =>
+        string.IsNullOrEmpty(id) ? "" : _items.TryGetValue(id, out var item) ? item.SheetLabel() : missing;
+
+    private RenderFragment Warn(string? id, HashSet<string> doubleBooked) => __builder =>
+    {
+        if (string.IsNullOrEmpty(id))
+            return;
+        var reason = doubleBooked.Contains(id) ? "Given to more than one person"
+            : _items.TryGetValue(id, out var item) ? item.Warning(_today) : null;
+        if (reason is not null)
+        {
+            <span class="warn" title="@reason" aria-label="@reason">⚠</span>
+        }
+    };
+
+    private RenderFragment KitSelect(string? value, Action<string?> set, List<KitItem> options, string label) => __builder =>
+    {
+        <select class="input cell-kit" value="@(value ?? "")" aria-label="@label"
+                @onchange="e => { set(e.Value as string); MarkDirty(); }">
+            <option value=""></option>
+            @foreach (var item in options)
+            {
+                var warning = item.Warning(_today);
+                <option value="@item.Id">@item.SheetLabel()@(warning is null ? "" : $" ({warning})")</option>
+            }
+        </select>
+    };
+
+    private void MarkDirty() => _dirty = true;
+
+    private void StartEditing()
+    {
+        _status = null;
+        SessionRules.AddMissingCylinders(_session!, _items.Values, _allSessions);
+        _editing = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!_dirty)
+        {
+            _editing = false;
+            return;
+        }
+        _busy = true;
+        try
+        {
+            SessionRules.Tidy(_session!);
+            await Repository.SaveSessionAsync(_session!, Auth.User?.Email);
+            _dirty = false;
+            _editing = false;
+            LeaveEditUrl();
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't save: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (_dirty && !await JS.InvokeAsync<bool>("confirm", "Discard your changes?"))
+            return;
+        _dirty = false;
+        _editing = false;
+        _session = await Repository.GetSessionAsync(Id);
+        LeaveEditUrl();
+    }
+
+    // A new sheet opens with ?edit=true; drop it so reloading shows the saved sheet.
+    private void LeaveEditUrl()
+    {
+        if (EditRequested)
+            Navigation.NavigateTo($"sessions/{Id}", replace: true);
+    }
+
+    private async Task ConfirmLeaveAsync(LocationChangingContext context)
+    {
+        if (_dirty && !await JS.InvokeAsync<bool>("confirm", "You have unsaved changes. Leave without saving?"))
+            context.PreventNavigation();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete the sheet for {_session!.Date:d MMM yyyy}?"))
+            return;
+        try
+        {
+            await Repository.DeleteSessionAsync(Id);
+            Navigation.NavigateTo("sessions");
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't delete: {ex.Message}";
+        }
+    }
+
+    private async Task PrintAsync() => await JS.InvokeVoidAsync("print");
+
+    private async Task ShareAsync()
+    {
+        try
+        {
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/share.js");
+            var result = await module.InvokeAsync<string>("shareText", $"Kit for {_session!.Date:ddd d MMM}", ShareText());
+            _status = result == "copied" ? "Copied the kit list. Paste it into WhatsApp or an email." : null;
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't share: {ex.Message}";
+        }
+    }
+
+    private string ShareText()
+    {
+        var lines = new List<string> { $"Kit for {_session!.Date:dddd d MMMM}" };
+        if (_session.Notes is not null)
+            lines.Add(_session.Notes);
+        lines.Add("");
+
+        var spare = new List<string>();
+        foreach (var row in OrderedRows())
+        {
+            var pressure = row.StartPressure is null ? ""
+                : char.IsDigit(row.StartPressure[^1]) ? $" at {row.StartPressure} bar" : $" ({row.StartPressure})";
+            var cylinder = Label(row.CylinderId, "?") + pressure;
+            if (!row.IsAssigned)
+            {
+                spare.Add(cylinder);
+                continue;
+            }
+            var kit = new[] { Prefixed(row.BcdId, "BCD"), Prefixed(row.FinsId, "Fins"), Prefixed(row.RegId, "Reg") }
+                .Where(k => k is not null);
+            lines.Add($"{row.Diver ?? "?"}: cyl {cylinder}, {string.Join(", ", kit)}".TrimEnd(',', ' '));
+        }
+        if (spare.Count > 0)
+        {
+            lines.Add("");
+            lines.Add($"Spare cylinders: {string.Join(", ", spare)}");
+        }
+        lines.Add("");
+        lines.Add("Note your end pressures please!");
+        return string.Join('\n', lines);
+    }
+
+    private string? Prefixed(string? id, string prefix) =>
+        !string.IsNullOrEmpty(id) && _items.TryGetValue(id, out var item) ? item.PrefixedLabel(prefix) : null;
+}

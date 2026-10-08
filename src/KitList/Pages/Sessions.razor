@@ -1,0 +1,107 @@
+@page "/sessions"
+@inject KitRepository Repository
+@inject AuthService Auth
+@inject NavigationManager Navigation
+
+<PageTitle>Sessions · Club Kit</PageTitle>
+
+<h1>Sessions</h1>
+<p class="muted">The kit sheet for each session: who's using which cylinder, BCD, fins and reg, with start and end pressures.</p>
+
+@if (_error is not null)
+{
+    <p class="alert alert-error">@_error</p>
+}
+
+@if (Auth.CanEdit)
+{
+    <form class="card form new-session" @onsubmit="CreateAsync">
+        <label class="field">
+            <span>Session date</span>
+            <input class="input" type="date" @bind="_newDate" />
+        </label>
+        <button type="submit" class="btn btn-primary" disabled="@_busy">Start sheet</button>
+    </form>
+}
+
+@if (_sessions is null)
+{
+    @if (_error is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+}
+else if (_sessions.Count == 0)
+{
+    <p class="muted">No sessions yet.</p>
+}
+else
+{
+    <ul class="rows card">
+        @foreach (var session in _sessions)
+        {
+            var divers = session.Rows.Count(r => !string.IsNullOrWhiteSpace(r.Diver));
+            <li>
+                <a href="sessions/@session.Id">
+                    <span class="row-main">
+                        <strong>@session.Date.ToString("ddd d MMM yyyy")</strong>
+                        <span class="muted">@divers @(divers == 1 ? "diver" : "divers")@(session.Notes is null ? "" : $" · {session.Notes}")</span>
+                    </span>
+                    @if (session.Date == _today)
+                    {
+                        <span class="badge badge-ok">Today</span>
+                    }
+                </a>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private List<DiveSession>? _sessions;
+    private DateOnly _newDate = ServiceRules.Today();
+    private readonly DateOnly _today = ServiceRules.Today();
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _sessions = await Repository.GetSessionsAsync();
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't load sessions: {ex.Message}";
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_sessions is null)
+            return;
+        var id = SessionRules.IdFor(_newDate);
+        if (_sessions.Any(s => s.Id == id))
+        {
+            Navigation.NavigateTo($"sessions/{id}");
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var items = await Repository.GetItemsAsync();
+            var session = SessionRules.Create(_newDate, items, _sessions);
+            await Repository.SaveSessionAsync(session, Auth.User?.Email);
+            Navigation.NavigateTo($"sessions/{id}?edit=true");
+        }
+        catch (JSException ex)
+        {
+            _error = $"Couldn't create the session: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

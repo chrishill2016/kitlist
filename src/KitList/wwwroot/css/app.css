@@ -76,6 +76,7 @@ h1:focus { outline: none; }
 .page { max-width: 960px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
 .page-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; }
 .page-header p { margin: -.5rem 0 1rem; }
+.page-header .actions { margin-bottom: .75rem; }
 .crumbs { margin: 0 0 .5rem; }
 
 .card {
@@ -232,3 +233,36 @@ h1:focus { outline: none; }
 }
 .loading-progress-text { position: absolute; text-align: center; font-weight: bold; inset: calc(20vh + 3.25rem) 0 auto .2rem; }
 .loading-progress-text:after { content: var(--blazor-load-percentage-text, "Loading"); }
+
+/* Session kit sheet */
+.new-session { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
+.new-session .field { margin-bottom: 0; }
+.session-notes { margin: -.25rem 0 1rem; max-width: 28rem; }
+.sheet-note { font-size: .9rem; color: var(--muted); margin: 0 0 .75rem; }
+.link-button { background: none; border: 0; padding: 0; margin-left: .5rem; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+
+.sheet-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 1rem; }
+.sheet { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.sheet th, .sheet td { border-bottom: 1px solid var(--border); padding: .45rem .6rem; text-align: center; white-space: nowrap; }
+.sheet thead th { font-size: .8rem; color: var(--muted); font-weight: 600; line-height: 1.2; vertical-align: bottom; }
+.sheet .unit { font-weight: 400; }
+.sheet tbody th { font-weight: 700; text-align: left; position: sticky; left: 0; background: var(--surface); }
+.sheet td:last-child { text-align: left; min-width: 7rem; }
+.sheet tbody tr:last-child > * { border-bottom: 0; }
+.sheet tr.unassigned td { color: var(--muted); }
+.sheet.editing td { padding: .25rem .3rem; }
+.sheet .input { padding: .3rem .4rem; }
+.cell-pressure { width: 4.5rem; text-align: center; }
+.cell-kit { width: auto; min-width: 4.5rem; }
+.cell-name { min-width: 8rem; }
+.warn { color: var(--overdue-text); margin-left: .25rem; cursor: help; }
+
+@media print {
+    .no-print, .crumbs, .actions { display: none !important; }
+    :root { --bg: #fff; --surface: #fff; --text: #000; --muted: #333; --border: #000; }
+    .page { max-width: none; padding: 0; }
+    .sheet-wrap { overflow: visible; border: 1px solid #000; border-radius: 0; }
+    .sheet th, .sheet td { border: 1px solid #000; padding: .35rem .5rem; }
+    .sheet tbody th { position: static; }
+    .sheet td:nth-child(3) { min-width: 4rem; }
+}

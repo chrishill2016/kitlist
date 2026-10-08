@@ -35,6 +35,11 @@ service cloud.firestore {
       }
     }
 
+    match /sessions/{sessionId} {
+      allow read: if isMember();
+      allow write: if hasRole(['Editor', 'Admin']);
+    }
+
     match /members/{email} {
       // Everyone can check their own entry; members can see the list.
       allow read: if signedIn() && (email == myEmail() || isMember());

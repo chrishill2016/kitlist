@@ -1,8 +1,9 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AuthService Auth
+@inject IJSRuntime JS
 
-<header class="topbar">
+<header class="topbar no-print">
     <a class="brand" href="">
         <img src="icon-192.png" alt="" width="28" height="28" />
         <span>Club Kit</span>
@@ -11,6 +12,7 @@
     {
         <nav class="nav">
             <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="sessions">Sessions</NavLink>
             <NavLink href="kit">Kit</NavLink>
             @if (Auth.IsAdmin)
             {
@@ -29,8 +31,9 @@
 
 @if (Auth.IsDemo)
 {
-    <div class="demo-banner">
+    <div class="demo-banner no-print">
         Demo mode: Firebase isn't configured, so data is only saved in this browser. See the README to connect a database.
+        <button class="link-button" @onclick="ResetDemoAsync">Reset demo data</button>
     </div>
 }
 
@@ -75,6 +78,13 @@
         Auth.Changed += OnAuthChanged;
         if (!Auth.IsReady)
             await Auth.InitializeAsync();
+    }
+
+    private async Task ResetDemoAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete everything in the demo and start again with the sample data?"))
+            return;
+        await DemoData.ResetAsync(JS);
     }
 
     private void OnAuthChanged() => InvokeAsync(StateHasChanged);
