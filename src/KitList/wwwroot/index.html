@@ -31,7 +31,35 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
-    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+    <div id="update-banner" hidden>
+        A new version of Club Kit is available.
+        <button type="button" id="update-reload">Reload</button>
+    </div>
+    <script>
+        // The app is cached for offline use, so a new deploy only takes over once the user agrees to reload.
+        (function () {
+            if (!('serviceWorker' in navigator)) return;
+            var reloading = false;
+            navigator.serviceWorker.addEventListener('controllerchange', function () {
+                if (!reloading) { reloading = true; location.reload(); }
+            });
+            navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' }).then(function (registration) {
+                function offer(worker) {
+                    document.getElementById('update-banner').hidden = false;
+                    document.getElementById('update-reload').onclick = function () { worker.postMessage('skipWaiting'); };
+                }
+                if (registration.waiting && navigator.serviceWorker.controller) offer(registration.waiting);
+                registration.addEventListener('updatefound', function () {
+                    var worker = registration.installing;
+                    worker.addEventListener('statechange', function () {
+                        if (worker.state === 'installed' && navigator.serviceWorker.controller) offer(worker);
+                    });
+                });
+                // Installed apps can stay open for days; look for new versions now and then.
+                setInterval(function () { registration.update(); }, 60 * 60 * 1000);
+            });
+        })();
+    </script>
 </body>
 
 </html>

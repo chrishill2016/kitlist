@@ -266,3 +266,33 @@ h1:focus { outline: none; }
     .sheet tbody th { position: static; }
     .sheet td:nth-child(3) { min-width: 4rem; }
 }
+
+#update-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: max-content;
+    max-width: calc(100% - 2rem);
+    padding: .6rem .75rem .6rem 1rem;
+    border-radius: var(--radius);
+    background: var(--topbar);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+    font-size: .95rem;
+}
+#update-banner[hidden] { display: none; }
+#update-banner button {
+    border: 0;
+    border-radius: 6px;
+    padding: .35rem .8rem;
+    background: var(--primary);
+    color: var(--primary-text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
